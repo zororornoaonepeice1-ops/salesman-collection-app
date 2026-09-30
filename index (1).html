@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Salesman Collection</title>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:Arial,sans-serif;background:#f4f6f8;color:#17202a}
+.wrap{max-width:900px;margin:auto;padding:16px} .card{background:#fff;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 2px 10px #00000012}
+h1,h2{margin-top:0} input,select,button,textarea{width:100%;padding:12px;margin:6px 0 12px;border:1px solid #ccd3da;border-radius:9px;font-size:16px}
+button{background:#1f6feb;color:#fff;border:0;font-weight:700;cursor:pointer} button.secondary{background:#59636e} button.danger{background:#c62828}
+.hidden{display:none} .row{display:grid;grid-template-columns:1fr 1fr;gap:12px} .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.dashboard{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}.dash{background:#f7f9fc;border:1px solid #e5e7eb;border-radius:10px;padding:12px;text-align:center}.dash span{display:block;color:#667085;font-size:12px}.dash b{display:block;font-size:20px;margin-top:5px}.dash small{display:block;color:#98a2b3;margin-top:4px}.dashboard-extra{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.panel{border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff}.panel h3{margin:0 0 10px}.panel table{font-size:12px}.toolbar{display:flex;gap:8px}.toolbar button{width:auto;margin:0}@media(max-width:650px){.dashboard-extra{grid-template-columns:1fr}.toolbar{display:block}.toolbar button{width:100%;margin:6px 0}}.summary-table{margin-top:12px;overflow:auto}.summary-table table{min-width:760px}.empty{padding:18px;text-align:center;color:#667085;background:#f8fafc;border-radius:10px}@media(max-width:900px){.dashboard{grid-template-columns:repeat(3,1fr)}}
+.stat{background:#eef4ff;border-radius:10px;padding:12px;text-align:center} .stat b{display:block;font-size:20px;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px} th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left} th{background:#f7f8fa}
+#msg{padding:10px;border-radius:8px;margin-bottom:10px} .ok{background:#e7f6ec;color:#176b35} .err{background:#fdeaea;color:#9b1c1c}
+@media(max-width:650px){.row,.stats{grid-template-columns:1fr}.dashboard{grid-template-columns:repeat(2,1fr)} table{display:block;overflow:auto;white-space:nowrap}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="login" class="card">
+<h1>Salesman Collection</h1>
+<div id="loginMsg"></div>
+<label>Username</label><input id="username" autocomplete="username">
+<label>Password</label><input id="password" type="password" autocomplete="current-password">
+<button onclick="login()">Login</button>
+
+</div>
+
+<div id="app" class="hidden">
+<div class="card">
+<h2 id="welcome"></h2>
+<button class="secondary" onclick="logout()">Logout</button>
+</div>
+
+<div id="dashboard" class="card">
+<h2 id="dashTitle">Today's Collection</h2>
+<div id="dashboardStats" class="dashboard"></div>
+<div id="dashboardExtra" class="dashboard-extra"></div>
+<div id="adminSummary" class="summary-table"></div>
+</div>
+
+<div id="entry" class="card">
+<h2>New Collection</h2>
+<div id="msg"></div>
+<label>Customer</label>
+<input id="customerSearch" placeholder="Search customer code or name..." oninput="searchCustomers()">
+<select id="customerSelect"><option value="">Select customer</option></select>
+
+<div class="row">
+<div><label>Collection Type</label>
+<select id="collectionType"><option>Cash Sale</option><option>Outstanding</option></select></div>
+<div><label>Payment Method</label>
+<select id="paymentMethod" onchange="toggleRef()"><option>Cash</option><option>Cheque</option><option>Online</option><option>Card</option></select></div>
+</div>
+
+<div class="row">
+<div><label>Amount</label><input id="amount" type="number" min="0.01" step="0.01"></div>
+<div><label>Reference</label><input id="reference" placeholder="Cheque / transaction ref"></div>
+</div>
+<label>Remarks</label><textarea id="remarks" rows="3"></textarea>
+<button onclick="saveCollection()">Save Collection</button>
+</div>
+
+<div class="card">
+<h2>Daily Report</h2>
+<div class="row">
+<div><label>Date</label><input id="reportDate" type="date"></div>
+<div><label>Payment</label><select id="reportPayment"><option value="">All</option><option>Cash</option><option>Cheque</option><option>Online</option><option>Card</option></select></div>
+</div>
+<div class="row">
+<div><label>Type</label><select id="reportType"><option value="">All</option><option>Cash Sale</option><option>Outstanding</option></select></div>
+<div id="adminSalesmanWrap"><label>Salesman</label><select id="reportSalesman"><option value="">All</option></select></div>
+</div>
+<label>Customer search</label><input id="reportCustomer" placeholder="Customer name/code">
+<button onclick="loadReport()">Refresh Report</button>
+<div id="stats" class="stats" style="margin-top:10px"></div>
+<div id="report" style="margin-top:14px"></div>
+</div>
+</div>
+</div>
+
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbxN9iFyzCU-17fzQ4-uheIJqpMtV7HOMXBW7rCGCII0wm8VWT6BsqkWjnFBAYtzTAw0bQ/exec';
+let session = null;
+let searchTimer = null;
+
+function showMsg(id, text, ok=false) {
+  const el=document.getElementById(id);
+  el.textContent=text;
+  el.className=ok?'ok':'err';
+}
+
+async function apiCall(action, data={}) {
+  const payload={action,...data};
+  const r=await fetch(API,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(payload)
+  });
+  const j=await r.json();
+  if(!j.ok) throw new Error(j.error||'Request failed');
+  return j;
+}
+
+async function login() {
+  try {
+    const username=document.getElementById('username').value.trim();
+    const password=document.getElementById('password').value;
+    showMsg('loginMsg','Signing in...',true);
+    const j=await apiCall('login',{username,password});
+    session=j;
+    localStorage.setItem('sc_session',JSON.stringify(j));
+    startApp();
+  } catch(e) { showMsg('loginMsg',e.message); }
+}
+
+function logout() {
+  session=null; localStorage.removeItem('sc_session');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login').classList.remove('hidden');
+}
+
+function startApp() {
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('welcome').textContent =
+    session.user.role==='admin' ? 'Admin Dashboard' : 'Welcome, '+session.user.salesman;
+  document.getElementById('reportDate').value=localDateString();
+  document.getElementById('adminSalesmanWrap').style.display =
+    session.user.role==='admin' ? '' : 'none';
+  searchCustomers();
+  loadReport();
+  if(session.user.role==='admin') loadSalesmen();
+}
+
+async function searchCustomers() {
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(async()=>{
+    try {
+      const q=document.getElementById('customerSearch').value;
+      const j=await apiCall('customers',{token:session.token,query:q,limit:50});
+      const sel=document.getElementById('customerSelect');
+      sel.innerHTML='<option value="">Select customer</option>';
+      j.customers.forEach(c=>{
+        const o=document.createElement('option');
+        o.value=c.customerCode;
+        o.textContent=c.customerCode+' - '+c.customerName;
+        sel.appendChild(o);
+      });
+    } catch(e) { showMsg('msg',e.message); }
+  },250);
+}
+
+function toggleRef() {
+  const p=document.getElementById('paymentMethod').value;
+  document.getElementById('reference').placeholder =
+    p==='Cheque' ? 'Cheque number' : (p==='Online' ? 'Transaction reference' : 'Optional reference');
+}
+
+async function saveCollection() {
+  try {
+    const customerCode=document.getElementById('customerSelect').value;
+    if(!customerCode) throw new Error('Please select a customer');
+    const amount=Number(document.getElementById('amount').value);
+    if(!amount || amount<=0) throw new Error('Enter a valid amount');
+    const j=await apiCall('saveCollection',{
+      token:session.token, customerCode,
+      collectionType:document.getElementById('collectionType').value,
+      paymentMethod:document.getElementById('paymentMethod').value,
+      amount,
+      reference:document.getElementById('reference').value,
+      remarks:document.getElementById('remarks').value
+    });
+    showMsg('msg','Saved successfully: '+j.id,true);
+    document.getElementById('amount').value='';
+    document.getElementById('reference').value='';
+    document.getElementById('remarks').value='';
+    loadReport();
+  } catch(e) { showMsg('msg',e.message); }
+}
+
+async function loadSalesmen() {
+  try {
+    const j=await apiCall('salesmen',{token:session.token});
+    const sel=document.getElementById('reportSalesman');
+    sel.innerHTML='<option value="">All</option>';
+    j.salesmen.filter(x=>x.role==='salesman').forEach(x=>{
+      const o=document.createElement('option'); o.value=x.salesman; o.textContent=x.salesman; sel.appendChild(o);
+    });
+  } catch(e) {}
+}
+
+async function loadReport() {
+  try {
+    const j=await apiCall('report',{
+      token:session.token,
+      date:document.getElementById('reportDate').value,
+      salesman:document.getElementById('reportSalesman').value,
+      paymentMethod:document.getElementById('reportPayment').value,
+      collectionType:document.getElementById('reportType').value,
+      customer:document.getElementById('reportCustomer').value
+    });
+
+    renderDashboard(j.rows || []);
+
+    const total=(j.rows||[]).reduce((a,r)=>a+Number(r.amount||0),0);
+    const cashSale=(j.rows||[]).filter(r=>r.collectionType==='Cash Sale').reduce((a,r)=>a+Number(r.amount||0),0);
+    const outstanding=(j.rows||[]).filter(r=>r.collectionType==='Outstanding').reduce((a,r)=>a+Number(r.amount||0),0);
+    document.getElementById('stats').innerHTML=
+      `<div class="stat">Entries<b>${j.rows.length}</b></div>
+       <div class="stat">Total<b>${money(total)}</b></div>
+       <div class="stat">Cash Sale<b>${money(cashSale)}</b></div>
+       <div class="stat">Outstanding<b>${money(outstanding)}</b></div>`;
+
+    if(!j.rows.length){
+      document.getElementById('report').innerHTML='<div class="empty">No collections found for the selected filters.</div>';
+      return;
+    }
+    let h='<table><tr><th>Time</th><th>Salesman</th><th>Customer</th><th>Type</th><th>Payment</th><th>Amount</th><th>Reference</th></tr>';
+    j.rows.forEach(r=>{
+      const t=new Date(r.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      h+=`<tr><td>${t}</td><td>${esc(r.salesman)}</td><td>${esc(r.customerName)}</td><td>${esc(r.collectionType)}</td><td>${esc(r.paymentMethod)}</td><td>${money(r.amount)}</td><td>${esc(r.reference)}</td></tr>`;
+    });
+    h+='</table>';
+    document.getElementById('report').innerHTML=h;
+  } catch(e) {
+    document.getElementById('report').innerHTML='<div class="err">'+esc(e.message)+'</div>';
+  }
+}
+
+function money(n){
+  return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function renderDashboard(rows){
+  const isAdmin=session.user.role==='admin';
+  const title=document.getElementById('dashTitle');
+  title.textContent=isAdmin ? "Today's Collection Summary" : "My Collection Today";
+  const total=rows.reduce((a,r)=>a+Number(r.amount||0),0);
+  const cashSale=rows.filter(r=>r.collectionType==='Cash Sale').reduce((a,r)=>a+Number(r.amount||0),0);
+  const outstanding=rows.filter(r=>r.collectionType==='Outstanding').reduce((a,r)=>a+Number(r.amount||0),0);
+  const cash=rows.filter(r=>r.paymentMethod==='Cash').reduce((a,r)=>a+Number(r.amount||0),0);
+  const cheque=rows.filter(r=>r.paymentMethod==='Cheque').reduce((a,r)=>a+Number(r.amount||0),0);
+  const online=rows.filter(r=>r.paymentMethod==='Online').reduce((a,r)=>a+Number(r.amount||0),0);
+  const card=rows.filter(r=>r.paymentMethod==='Card').reduce((a,r)=>a+Number(r.amount||0),0);
+  const customers=new Set(rows.map(r=>r.customerCode||r.customerName)).size;
+
+  document.getElementById('dashboardStats').innerHTML=`
+    <div class="dash"><span>Total Collection</span><b>${money(total)}</b><small>${rows.length} entries</small></div>
+    <div class="dash"><span>Cash Sale</span><b>${money(cashSale)}</b></div>
+    <div class="dash"><span>Outstanding</span><b>${money(outstanding)}</b></div>
+    <div class="dash"><span>Cash</span><b>${money(cash)}</b></div>
+    <div class="dash"><span>Cheque</span><b>${money(cheque)}</b></div>
+    <div class="dash"><span>Online</span><b>${money(online)}</b></div>
+    <div class="dash"><span>Card</span><b>${money(card)}</b></div>`;
+
+  const byCustomer={};
+  rows.forEach(r=>{
+    const key=r.customerCode||r.customerName||'Unknown';
+    if(!byCustomer[key]) byCustomer[key]={name:r.customerName||key,code:r.customerCode||'',total:0,entries:0};
+    byCustomer[key].total+=Number(r.amount||0); byCustomer[key].entries++;
+  });
+  const topCustomers=Object.values(byCustomer).sort((a,b)=>b.total-a.total).slice(0,10);
+  const extra=document.getElementById('dashboardExtra');
+  extra.innerHTML=`
+    <div class="panel"><h3>Collection Overview</h3>
+      <table><tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Customers Collected From</td><td><b>${customers}</b></td></tr>
+      <tr><td>Total Entries</td><td><b>${rows.length}</b></td></tr>
+      <tr><td>Average per Entry</td><td><b>${money(rows.length?total/rows.length:0)}</b></td></tr></table>
+    </div>
+    <div class="panel"><h3>Top Customers Today</h3>
+      ${topCustomers.length?'<table><tr><th>Customer</th><th>Entries</th><th>Total</th></tr>'+topCustomers.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.entries}</td><td>${money(x.total)}</td></tr>`).join('')+'</table>':'<div class="empty">No collections yet.</div>'}
+    </div>`;
+
+  const admin=document.getElementById('adminSummary');
+  if(!isAdmin){ admin.innerHTML=''; return; }
+  const by={};
+  rows.forEach(r=>{
+    const name=r.salesman||'Unknown';
+    if(!by[name]) by[name]={total:0,cashSale:0,outstanding:0,cash:0,cheque:0,online:0,card:0,entries:0};
+    const x=by[name], amount=Number(r.amount||0); x.total+=amount; x.entries++;
+    if(r.collectionType==='Cash Sale') x.cashSale+=amount;
+    if(r.collectionType==='Outstanding') x.outstanding+=amount;
+    if(r.paymentMethod==='Cash') x.cash+=amount;
+    if(r.paymentMethod==='Cheque') x.cheque+=amount;
+    if(r.paymentMethod==='Online') x.online+=amount;
+    if(r.paymentMethod==='Card') x.card+=amount;
+  });
+  const names=Object.keys(by).sort();
+  if(!names.length){admin.innerHTML='<div class="empty">No salesman collections for the selected date and filters.</div>';return;}
+  let h='<h3>All Salesmen Summary</h3><div class="panel"><table><tr><th>Salesman</th><th>Entries</th><th>Total</th><th>Cash Sale</th><th>Outstanding</th><th>Cash</th><th>Cheque</th><th>Online</th><th>Card</th></tr>';
+  names.forEach(name=>{const x=by[name];h+=`<tr><td><b>${esc(name)}</b></td><td>${x.entries}</td><td>${money(x.total)}</td><td>${money(x.cashSale)}</td><td>${money(x.outstanding)}</td><td>${money(x.cash)}</td><td>${money(x.cheque)}</td><td>${money(x.online)}</td><td>${money(x.card)}</td></tr>`;});
+  h+='</table></div>'; admin.innerHTML=h;
+}
+function localDateString() {
+  const d=new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function esc(s) {
+  return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+try {
+  const saved=localStorage.getItem('sc_session');
+  if(saved) { session=JSON.parse(saved); startApp(); }
+} catch(e) {}
+</script>
+</body>
+</html>
